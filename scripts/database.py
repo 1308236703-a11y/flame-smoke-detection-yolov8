@@ -1,0 +1,215 @@
+import sqlite3
+import json
+from datetime import datetime
+from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
+
+class DetectionDatabase:
+    def __init__(self, db_path="./data/detection.db"):
+        self.db_path = db_path
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+        self.init_db()
+
+    def init_db(self):
+        """初始化数据库表结构"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # 检测记录表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS detections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                image_path TEXT,
+                flame_count INTEGER DEFAULT 0,
+                smoke_count INTEGER DEFAULT 0,
+                total_detections INTEGER DEFAULT 0,
+                confidence_avg REAL DEFAULT 0.0,
+                result_image_path TEXT,
+                model_name TEXT DEFAULT 'yolov8n',
+                processing_time_ms REAL DEFAULT 0.0
+            )
+        ''')
+        
+        # 统计表（每日汇总）
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS statistics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date DATE UNIQUE,
+                total_detections INTEGER DEFAULT 0,
+                flame_detections INTEGER DEFAULT 0,
+                smoke_detections INTEGER DEFAULT 0,
+                average_confidence REAL DEFAULT 0.0,
+                alert_count INTEGER DEFAULT 0,
+                last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # 报警记录表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                detection_id INTEGER,
+                alert_type TEXT,
+                message TEXT,
+                phone_number TEXT,
+                sms_sent BOOLEAN DEFAULT 0,
+                confidence REAL,
+                FOREIGN KEY(detection_id) REFERENCES detections(id)
+            )
+        ''')
+        
+        conn.commit()
+        conn.close()
+        logger.info(f"数据库初始化完成: {self.db_path}")
+
+    def save_detection(self, image_path, flame_count, smoke_count, 
+                      confidence_avg, result_image_path, model_name, processing_time):
+        """保存检测结果"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        total = flame_count + smoke_count
+        
+        cursor.execute('''
+            INSERT INTO detections 
+            (image_path, flame_count, smoke_count, total_detections, 
+             confidence_avg, result_image_path, model_name, processing_time_ms)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (image_path, flame_count, smoke_count, total, 
+              confidence_avg, result_image_path, model_name, processing_time))
+        
+        conn.commit()
+        detection_id = cursor.lastrowid
+        conn.close()
+        
+        logger.info(f"检测结果已保存: ID={detection_id}, 火焰={flame_count}, 烟雾={smoke_count}")
+        return detection_id
+
+    def save_alert(self, detection_id, alert_type, message, phone_number, 
+                   sms_sent, confidence):
+        """保存报警记录"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO alerts 
+            (detection_id, alert_type, message, phone_number, sms_sent, confidence)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (detection_id, alert_type, message, phone_number, sms_sent, confidence))
+        
+        conn.commit()
+        conn.close()
+        logger.info(f"报警已保存: {alert_type} - {message}")
+
+    def get_detection_history(self, limit=100):
+        """获取检测历史"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT id, timestamp, image_path, flame_count, smoke_count, 
+                   total_detections, confidence_avg, model_name
+            FROM detections
+            ORDER BY timestamp DESC
+            LIMIT ?
+        ''', (limit,))
+        
+        results = cursor.fetchall()
+        conn.close()
+        
+        return [dict(zip(['id', 'timestamp', 'image_path', 'flame_count', 
+                         'smoke_count', 'total_detections', 'confidence_avg', 
+                         'model_name'], row)) for row in results]
+
+    def get_daily_stats(self, date=None):
+        """获取每日统计"""
+        if date is None:
+            date = datetime.now().strftime('%Y-%m-%d')
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT * FROM statistics WHERE date = ?', (date,))
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result:
+            return dict(zip(['id', 'date', 'total_detections', 'flame_detections',
+                           'smoke_detections', 'average_confidence', 'alert_count', 
+                           'last_updated'], result))
+        return None
+
+    def update_daily_stats(self):
+        """更新每日统计"""
+        date = datetime.now().strftime('%Y-%m-%d')
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT COUNT(*), SUM(flame_count), SUM(smoke_count), AVG(confidence_avg)
+            FROM detections
+            WHERE DATE(timestamp) = ?
+        ''', (date,))
+        
+        result = cursor.fetchone()
+        total, flame, smoke, avg_conf = result
+        
+        cursor.execute('''
+            SELECT COUNT(*) FROM alerts WHERE DATE(timestamp) = ?
+        ''', (date,))
+        alert_count = cursor.fetchone()[0]
+        
+        cursor.execute('''
+            INSERT OR REPLACE INTO statistics 
+            (date, total_detections, flame_detections, smoke_detections, 
+             average_confidence, alert_count, last_updated)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ''', (date, total or 0, flame or 0, smoke or 0, avg_conf or 0.0, alert_count))
+        
+        conn.commit()
+        conn.close()
+        logger.info(f"每日统计已更新: {date}")
+
+    def get_detection_by_id(self, detection_id):
+        """获取单个检测详情"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT id, timestamp, image_path, flame_count, smoke_count, 
+                   total_detections, confidence_avg, result_image_path, model_name, processing_time_ms
+            FROM detections
+            WHERE id = ?
+        ''', (detection_id,))
+        
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result:
+            return dict(zip(['id', 'timestamp', 'image_path', 'flame_count', 'smoke_count',
+                           'total_detections', 'confidence_avg', 'result_image_path',
+                           'model_name', 'processing_time_ms'], result))
+        return None
+
+    def get_alerts(self, limit=50):
+        """获取报警记录"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT id, timestamp, detection_id, alert_type, message, 
+                   phone_number, sms_sent, confidence
+            FROM alerts
+            ORDER BY timestamp DESC
+            LIMIT ?
+        ''', (limit,))
+        
+        results = cursor.fetchall()
+        conn.close()
+        
+        return [dict(zip(['id', 'timestamp', 'detection_id', 'alert_type', 'message',
+                         'phone_number', 'sms_sent', 'confidence'], row)) for row in results]
