@@ -1,0 +1,112 @@
+import argparse
+import cv2
+import torch
+import logging
+import time
+from pathlib import Path
+from ultralytics import YOLO
+import yaml
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class FlameDetector:
+    def __init__(self, model_name='yolov8n', device='cpu'):
+        self.model_name = model_name
+        self.device = device
+        self.model = YOLO(f'{model_name}.pt')
+        self.model.to(device)
+        logger.info(f"YOLOv8模型加载完成: {model_name}")
+    
+    def detect_image(self, image_path, conf_threshold=0.5):
+        """检测单张图片"""
+        image = cv2.imread(str(image_path))
+        if image is None:
+            logger.error(f"无法读取图片: {image_path}")
+            return None
+        
+        start_time = time.time()
+        results = self.model.predict(image, conf=conf_threshold, verbose=False)
+        processing_time = (time.time() - start_time) * 1000  # 转为毫秒
+        
+        flame_count = 0
+        smoke_count = 0
+        detections = []
+        
+        for result in results:
+            for box in result.boxes:
+                class_id = int(box.cls[0])
+                conf = float(box.conf[0])
+                class_name = result.names[class_id]
+                
+                if class_name.lower() == 'flame':
+                    flame_count += 1
+                elif class_name.lower() == 'smoke':
+                    smoke_count += 1
+                
+                detections.append({
+                    'class': class_name,
+                    'confidence': conf,
+                    'bbox': box.xyxy[0].tolist()
+                })
+                
+                logger.info(f"检测到: {class_name}, 置信度: {conf:.2f}")
+        
+        # 绘制检测结果
+        annotated_image = results[0].plot()
+        
+        return {
+            'image': annotated_image,
+            'flame_count': flame_count,
+            'smoke_count': smoke_count,
+            'detections': detections,
+            'confidence_avg': sum([d['confidence'] for d in detections]) / len(detections) if detections else 0.0,
+            'processing_time': processing_time
+        }
+    
+    def detect_batch(self, image_dir, conf_threshold=0.5):
+        """批量检测"""
+        image_dir = Path(image_dir)
+        results = []
+        
+        for image_file in image_dir.glob('*.jpg') + image_dir.glob('*.png'):
+            result = self.detect_image(str(image_file), conf_threshold)
+            if result:
+                results.append(result)
+        
+        return results
+
+def main():
+    parser = argparse.ArgumentParser(description='火焰与烟雾实时检测')
+    parser.add_argument('--image', type=str, help='输入图片路径')
+    parser.add_argument('--dir', type=str, help='输入图片目录')
+    parser.add_argument('--model', type=str, default='yolov8n', help='模型名称')
+    parser.add_argument('--device', type=str, default='cpu', help='计算设备')
+    parser.add_argument('--conf', type=float, default=0.5, help='置信度阈值')
+    parser.add_argument('--output', type=str, default='./results/', help='输出目录')
+    
+    args = parser.parse_args()
+    
+    # 创建输出目录
+    Path(args.output).mkdir(parents=True, exist_ok=True)
+    
+    detector = FlameDetector(args.model, args.device)
+    
+    if args.image:
+        logger.info(f"检测单张图片: {args.image}")
+        result = detector.detect_image(args.image, args.conf)
+        
+        if result:
+            output_path = Path(args.output) / f"detected_{Path(args.image).name}"
+            cv2.imwrite(str(output_path), result['image'])
+            logger.info(f"检测结果已保存: {output_path}")
+            logger.info(f"火焰数: {result['flame_count']}, 烟雾数: {result['smoke_count']}")
+            logger.info(f"平均置信度: {result['confidence_avg']:.2f}, 处理时间: {result['processing_time']:.2f}ms")
+    
+    elif args.dir:
+        logger.info(f"批量检测: {args.dir}")
+        results = detector.detect_batch(args.dir, args.conf)
+        logger.info(f"共检测 {len(results)} 张图片")
+
+if __name__ == '__main__':
+    main()
