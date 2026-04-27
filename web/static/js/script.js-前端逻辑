@@ -1,0 +1,245 @@
+// 初始化
+document.addEventListener('DOMContentLoaded', function() {
+    setupEventListeners();
+    loadStats();
+    loadHistory();
+    loadAlerts();
+    setInterval(loadStats, 5000);
+    setInterval(loadHistory, 10000);
+    setInterval(loadAlerts, 10000);
+});
+
+// 设置事件监听
+function setupEventListeners() {
+    const uploadArea = document.getElementById('uploadArea');
+    const imageInput = document.getElementById('imageInput');
+    const detectBtn = document.getElementById('detectBtn');
+
+    uploadArea.addEventListener('click', () => imageInput.click());
+    uploadArea.addEventListener('dragover', handleDragOver);
+    uploadArea.addEventListener('dragleave', handleDragLeave);
+    uploadArea.addEventListener('drop', handleDrop);
+    imageInput.addEventListener('change', handleFileSelect);
+    detectBtn.addEventListener('click', performDetection);
+}
+
+// 拖拽处理
+function handleDragOver(e) {
+    e.preventDefault();
+    document.getElementById('uploadArea').classList.add('dragover');
+}
+
+function handleDragLeave(e) {
+    e.preventDefault();
+    document.getElementById('uploadArea').classList.remove('dragover');
+}
+
+function handleDrop(e) {
+    e.preventDefault();
+    document.getElementById('uploadArea').classList.remove('dragover');
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+        document.getElementById('imageInput').files = files;
+        handleFileSelect();
+    }
+}
+
+// 文件选择处理
+function handleFileSelect() {
+    const imageInput = document.getElementById('imageInput');
+    const detectBtn = document.getElementById('detectBtn');
+    if (imageInput.files.length > 0) {
+        detectBtn.disabled = false;
+    }
+}
+
+// 执行检测
+async function performDetection() {
+    const imageInput = document.getElementById('imageInput');
+    const resultContainer = document.getElementById('resultContainer');
+    
+    if (imageInput.files.length === 0) {
+        alert('请选择图片');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', imageInput.files[0]);
+
+    resultContainer.innerHTML = '<p class="placeholder">检测中...</p>';
+
+    try {
+        const response = await fetch('/api/detect', {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!response.ok) {
+            throw new Error('检测失败');
+        }
+
+        const data = await response.json();
+        displayResult(data);
+        loadStats();
+        loadHistory();
+        loadAlerts();
+    } catch (error) {
+        resultContainer.innerHTML = `<p class="placeholder">错误: ${error.message}</p>`;
+    }
+}
+
+// 显示检测结果
+function displayResult(data) {
+    const resultContainer = document.getElementById('resultContainer');
+    
+    const html = `
+        <div class="detection-result">
+            <img src="${data.result_image}" alt="检测结果">
+            <div class="detection-stats">
+                <div class="stat-item">
+                    <div class="stat-item-label">🔥 火焰</div>
+                    <div class="stat-item-value">${data.flame_count}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-item-label">💨 烟雾</div>
+                    <div class="stat-item-value">${data.smoke_count}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-item-label">📊 置信度</div>
+                    <div class="stat-item-value">${(data.confidence_avg * 100).toFixed(1)}%</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-item-label">⏱️ 处理时间</div>
+                    <div class="stat-item-value">${data.processing_time_ms.toFixed(0)}ms</div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    resultContainer.innerHTML = html;
+}
+
+// 加载统计信息
+async function loadStats() {
+    try {
+        const response = await fetch('/api/stats');
+        const stats = await response.json();
+        
+        document.getElementById('totalDetections').textContent = stats.total_detections || 0;
+        document.getElementById('flameCount').textContent = stats.flame_detections || 0;
+        document.getElementById('smokeCount').textContent = stats.smoke_detections || 0;
+        document.getElementById('alertCount').textContent = stats.alert_count || 0;
+        
+        updateChart(stats);
+    } catch (error) {
+        console.error('加载统计信息失败:', error);
+    }
+}
+
+// 更新图表
+function updateChart(stats) {
+    const ctx = document.getElementById('statsChart');
+    if (!ctx) return;
+    
+    const chartCanvas = ctx.getContext('2d');
+    
+    // 销毁现有图表
+    if (window.statsChart) {
+        window.statsChart.destroy();
+    }
+    
+    window.statsChart = new Chart(chartCanvas, {
+        type: 'doughnut',
+        data: {
+            labels: ['🔥 火焰', '💨 烟雾', '✅ 无异常'],
+            datasets: [{
+                data: [
+                    stats.flame_detections || 0,
+                    stats.smoke_detections || 0,
+                    Math.max(0, (stats.total_detections || 0) - (stats.flame_detections || 0) - (stats.smoke_detections || 0))
+                ],
+                backgroundColor: [
+                    '#ff6b6b',
+                    '#95a5a6',
+                    '#2ecc71'
+                ],
+                borderColor: '#fff',
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom'
+                }
+            }
+        }
+    });
+}
+
+// 加载检测历史
+async function loadHistory() {
+    try {
+        const response = await fetch('/api/history?limit=10');
+        const history = await response.json();
+        
+        const tbody = document.getElementById('historyBody');
+        
+        if (history.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6">暂无数据</td></tr>';
+            return;
+        }
+        
+tbody.innerHTML = history.map(item => `
+            <tr>
+                <td>${new Date(item.timestamp).toLocaleString()}</td>
+                <td>${item.flame_count}</td>
+                <td>${item.smoke_count}</td>
+                <td>${(item.confidence_avg * 100).toFixed(1)}%</td>
+                <td>${item.processing_time_ms ? item.processing_time_ms.toFixed(0) + 'ms' : '-'}</td>
+                <td><span class="btn-view" onclick="viewDetection(${item.id})">查看</span></td>
+            </tr>
+        `).join('');
+    } catch (error) {
+        console.error('加载历史失败:', error);
+    }
+}
+
+// 加载报警记录
+async function loadAlerts() {
+    try {
+        const response = await fetch('/api/alerts?limit=10');
+        const alerts = await response.json();
+        
+        const container = document.getElementById('alertsContainer');
+        
+        if (alerts.length === 0) {
+            container.innerHTML = '<p class="placeholder">暂无报警记录</p>';\n            return;
+        }
+        
+        container.innerHTML = alerts.map(alert => `
+            <div class="alert-item ${alert.alert_type === '火焰' ? 'flame' : ''}">
+                <div>
+                    <strong>${alert.alert_type === '火焰' ? '🔥' : '💨'} ${alert.alert_type}</strong>
+                    <p>${alert.message}</p>
+                </div>
+                <div class="alert-time">${new Date(alert.timestamp).toLocaleString()}</div>
+            </div>
+        `).join('');
+    } catch (error) {
+        console.error('加载报警失败:', error);
+    }
+}
+
+// 查看检测详情
+async function viewDetection(id) {
+    try {
+        const response = await fetch(`/api/detection/${id}`);
+        const detection = await response.json();
+        alert(`检测ID: ${detection.id}\n时间: ${detection.timestamp}\n火焰: ${detection.flame_count}\n烟雾: ${detection.smoke_count}\n置信度: ${(detection.confidence_avg * 100).toFixed(1)}%`);
+    } catch (error) {
+        console.error('加载检测详情失败:', error);
+    }
+}
