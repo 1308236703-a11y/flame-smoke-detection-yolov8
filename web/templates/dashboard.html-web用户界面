@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>火焰与烟雾检测系统 - 可视化仪表盘</title>
+    <link rel="stylesheet" href="../static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- 头部 -->
+        <header class="header">
+            <div class="header-content">
+                <h1>🔥 火焰与烟雾实时检测系统</h1>
+                <p class="subtitle">YOLOv8 深度学习检测 | 实时报警 | 数据分析</p>
+            </div>
+        </header>
+
+        <!-- 统计卡片 -->
+        <section class="stats-section">
+            <div class="stat-card">
+                <div class="stat-icon">📊</div>
+                <div class="stat-content">
+                    <div class="stat-value" id="totalDetections">0</div>
+                    <div class="stat-label">总检测数</div>
+                </div>
+            </div>
+
+            <div class="stat-card flame">
+                <div class="stat-icon">🔥</div>
+                <div class="stat-content">
+                    <div class="stat-value" id="flameCount">0</div>
+                    <div class="stat-label">火焰检测</div>
+                </div>
+            </div>
+
+            <div class="stat-card smoke">
+                <div class="stat-icon">💨</div>
+                <div class="stat-content">
+                    <div class="stat-value" id="smokeCount">0</div>
+                    <div class="stat-label">烟雾检测</div>
+                </div>
+            </div>
+
+            <div class="stat-card alert">
+                <div class="stat-icon">🚨</div>
+                <div class="stat-content">
+                    <div class="stat-value" id="alertCount">0</div>
+                    <div class="stat-label">报警次数</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 主内容区 -->
+        <div class="main-content">
+            <!-- 左侧：图片上传 -->
+            <section class="upload-section">
+                <h2>📸 实时检测</h2>
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📁</div>
+                    <p>拖拽图片或点击选择</p>
+                    <small>支持 JPG, PNG 格式</small>
+                </div>
+                <input type="file" id="imageInput" accept="image/*" style="display:none;">
+                <button class="btn-primary" id="detectBtn" disabled>开始检测</button>
+            </section>
+
+            <!-- 右侧：检测结果 -->
+            <section class="result-section">
+                <h2>🎯 检测结果</h2>
+                <div class="result-container" id="resultContainer">
+                    <p class="placeholder">上传图片后显示检测结果</p>
+                </div>
+            </section>
+        </div>
+
+        <!-- 图表统计 -->
+        <section class="chart-section">
+            <h2>📈 统计信息</h2>
+            <div class="chart-container">
+                <canvas id="statsChart"></canvas>
+            </div>
+        </section>
+
+        <!-- 检测历史 -->
+        <section class="history-section">
+            <h2>📋 检测历史</h2>
+            <table class="history-table">
+                <thead>
+                    <tr>
+                        <th>时间</th>
+                        <th>火焰</th>
+                        <th>烟雾</th>
+                        <th>置信度</th>
+                        <th>处理时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="historyBody">
+                    <tr><td colspan="6">暂无数据</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- 报警记录 -->
+        <section class="alerts-section">
+            <h2>🚨 报警记录</h2>
+            <div class="alerts-container" id="alertsContainer">
+                <p class="placeholder">暂无报警记录</p>
+            </div>
+        </section>
+    </div>
+
+    <script src="../static/js/script.js"></script>
+</body>
+</html>
