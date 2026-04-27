@@ -1,0 +1,177 @@
+from flask import Flask, render_template, request, jsonify, send_file
+from flask_cors import CORS
+import os
+import sys
+from datetime import datetime
+from pathlib import Path
+import io
+import base64
+import cv2
+import numpy as np
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from scripts.database import DetectionDatabase
+from scripts.alert_manager import AlertManager
+from scripts.detect import FlameDetector
+
+app = Flask(__name__)
+CORS(app)
+
+# 初始化组件
+db = DetectionDatabase('./data/detection.db')
+alert_manager = AlertManager(test_mode=True)
+detector = FlameDetector(model_name='yolov8n', device='cpu')
+
+# 创建结果目录
+Path('./results').mkdir(exist_ok=True)
+
+@app.route('/')
+def index():
+    """主页"""
+    return render_template('dashboard.html')
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """健康检查"""
+    return jsonify({
+        'status': 'healthy',
+        'timestamp': datetime.now().isoformat(),
+        'model': 'yolov8n',
+        'device': 'cpu'
+    })
+
+@app.route('/api/stats', methods=['GET'])
+def get_stats():
+    """获取统计信息"""
+    db.update_daily_stats()
+    stats = db.get_daily_stats()
+    
+    if stats:
+        return jsonify(stats)
+    else:
+        return jsonify({
+            'date': datetime.now().strftime('%Y-%m-%d'),
+            'total_detections': 0,
+            'flame_detections': 0,
+            'smoke_detections': 0,
+            'average_confidence': 0.0,
+            'alert_count': 0
+        })
+
+@app.route('/api/history', methods=['GET'])
+def get_history():
+    """获取检测历史"""
+    limit = request.args.get('limit', 100, type=int)
+    history = db.get_detection_history(limit)
+    return jsonify(history)
+
+@app.route('/api/detect', methods=['POST'])
+def detect():
+    """上传图片进行检测"""
+    if 'file' not in request.files:
+        return jsonify({'error': '未提供文件'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': '文件名为空'}), 400
+    
+    try:
+        # 保存上传的文件
+        filename = f"upload_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+        upload_path = f'./data/uploads/{filename}'
+        Path('./data/uploads').mkdir(parents=True, exist_ok=True)
+        file.save(upload_path)
+        
+        # 进行检测
+        result = detector.detect_image(upload_path)
+        
+        if not result:
+            return jsonify({'error': '检测失败'}), 500
+        
+        # 保存结果图片
+        result_filename = f"result_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+        result_path = f'./results/{result_filename}'
+        cv2.imwrite(result_path, result['image'])
+        
+        # 计算平均置信度
+        avg_conf = result['confidence_avg']
+        
+        # 保存到数据库
+        detection_id = db.save_detection(
+            image_path=upload_path,
+            flame_count=result['flame_count'],
+            smoke_count=result['smoke_count'],
+            confidence_avg=avg_conf,
+            result_image_path=result_path,
+            model_name='yolov8n',
+            processing_time=result['processing_time']
+        )
+        
+        # 检查是否需要报警
+        if result['flame_count'] > 0 or result['smoke_count'] > 0:
+            alert_type = '火焰' if result['flame_count'] > 0 else '烟雾'
+            alert_manager.trigger_alert(
+                detection_id=detection_id,
+                flame_count=result['flame_count'],
+                smoke_count=result['smoke_count'],
+                confidence=avg_conf,
+                image_path=upload_path
+            )
+            
+            # 保存报警到数据库
+            db.save_alert(
+                detection_id=detection_id,
+                alert_type=alert_type,
+                message=f'检测到{alert_type}: 置信度 {avg_conf:.2f}',
+                phone_number=os.getenv('ALERT_PHONE_NUMBER', '+1234567890'),
+                sms_sent=True,
+                confidence=avg_conf
+            )
+        
+        # 转换检测图片为base64
+        with open(result_path, 'rb') as img_file:
+            img_base64 = base64.b64encode(img_file.read()).decode('utf-8')
+        
+        return jsonify({
+            'id': detection_id,
+            'flame_count': result['flame_count'],
+            'smoke_count': result['smoke_count'],
+            'confidence_avg': avg_conf,
+            'processing_time_ms': result['processing_time'],
+            'result_image': f'data:image/jpeg;base64,{img_base64}',
+            'timestamp': datetime.now().isoformat(),
+            'detections': result['detections']
+        })
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/detection/<int:detection_id>', methods=['GET'])
+def get_detection(detection_id):
+    """获取单个检测详情"""
+    detection = db.get_detection_by_id(detection_id)
+    if detection:
+        return jsonify(detection)
+    else:
+        return jsonify({'error': '检测不存在'}), 404
+
+@app.route('/api/alerts', methods=['GET'])
+def get_alerts():
+    """获取报警记录"""
+    limit = request.args.get('limit', 50, type=int)
+    alerts = db.get_alerts(limit)
+    return jsonify(alerts)
+
+@app.route('/api/model-info', methods=['GET'])
+def get_model_info():
+    """获取模型信息"""
+    return jsonify({
+        'model': 'yolov8n',
+        'classes': ['flame', 'smoke'],
+        'input_size': 640,
+        'device': 'cpu',
+        'framework': 'PyTorch'
+    })
+
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=5000)
