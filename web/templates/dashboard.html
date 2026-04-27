@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>火焰与烟雾检测系统 - 可视化仪表盘</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- 顶部导航 -->
+        <header class="header">
+            <div class="header-content">
+                <h1>🔥 火焰与烟雾检测系统</h1>
+                <div class="status-bar">
+                    <span id="status" class="status online">在线</span>
+                    <span id="timestamp"></span>
+                </div>
+            </div>
+        </header>
+
+        <!-- 主要内容 -->
+        <main class="main-content">
+            <!-- 统计卡片区域 -->
+            <section class="stats-section">
+                <div class="stat-card">
+                    <div class="stat-icon">📊</div>
+                    <div class="stat-content">
+                        <div class="stat-label">总检测数</div>
+                        <div class="stat-value" id="total-detections">0</div>
+                    </div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-icon">🔥</div>
+                    <div class="stat-content">
+                        <div class="stat-label">火焰检测</div>
+                        <div class="stat-value" id="flame-count">0</div>
+                    </div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-icon">💨</div>
+                    <div class="stat-content">
+                        <div class="stat-label">烟雾检测</div>
+                        <div class="stat-value" id="smoke-count">0</div>
+                    </div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-icon">📈</div>
+                    <div class="stat-content">
+                        <div class="stat-label">平均置信度</div>
+                        <div class="stat-value" id="avg-confidence">0%</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 两列布局 -->
+            <div class="content-row">
+                <!-- 左列：图片上传和检测 -->
+                <section class="upload-section">
+                    <h2>📸 实时检测</h2>
+                    
+                    <!-- 上传区域 -->
+                    <div class="upload-area" id="uploadArea">
+                        <div class="upload-icon">📤</div>
+                        <p>拖拽图片到此处或点击选择</p>
+                        <input type="file" id="fileInput" accept="image/*" style="display:none">
+                    </div>
+
+                    <!-- 检测进度 -->
+                    <div id="progressContainer" style="display:none;" class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill"></div>
+                        </div>
+                        <p id="progressText">检测中...</p>
+                    </div>
+
+                    <!-- 预览图 -->
+                    <div id="previewContainer" style="display:none;" class="preview-container">
+                        <img id="previewImage" alt="预览">
+                    </div>
+
+                    <!-- 检测结果 -->
+                    <div id="resultContainer" style="display:none;" class="result-container">
+                        <h3>检测结果</h3>
+                        <div class="result-item">
+                            <span>🔥 火焰:</span>
+                            <span id="resultFlame">0</span>
+                        </div>
+                        <div class="result-item">
+                            <span>💨 烟雾:</span>
+                            <span id="resultSmoke">0</span>
+                        </div>
+                        <div class="result-item">
+                            <span>🎯 置信度:</span>
+                            <span id="resultConfidence">0%</span>
+                        </div>
+                        <button class="btn-clear" onclick="clearUpload()">清空重新检测</button>
+                    </div>
+                </section>
+
+                <!-- 右列：图表 -->
+                <section class="chart-section">
+                    <h2>📊 检测趋势</h2>
+                    <canvas id="detectionChart"></canvas>
+                </section>
+            </div>
+
+            <!-- 检测历史表格 -->
+            <section class="history-section">
+                <h2>📋 检测历史</h2>
+                <div class="table-container">
+                    <table class="history-table">
+                        <thead>
+                            <tr>
+                                <th>时间</th>
+                                <th>火焰</th>
+                                <th>烟雾</th>
+                                <th>置信度</th>
+                                <th>状态</th>
+                            </tr>
+                        </thead>
+                        <tbody id="historyTableBody">
+                            <tr class="empty-row">
+                                <td colspan="5">暂无数据</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="pagination">
+                    <button onclick="loadPreviousPage()" class="btn-page">上一页</button>
+                    <span id="pageInfo">第 1 页</span>
+                    <button onclick="loadNextPage()" class="btn-page">下一页</button>
+                </div>
+            </section>
+
+            <!-- 报警历史 -->
+            <section class="alerts-section">
+                <h2>🚨 报警记录</h2>
+                <div class="alerts-container" id="alertsContainer">
+                    <p class="empty-msg">暂无报警记录</p>
+                </div>
+            </section>
+        </main>
+
+        <!-- 页脚 -->
+        <footer class="footer">
+            <p>火焰与烟雾检测系统 | 基于YOLOv8 | © 2024</p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html>
