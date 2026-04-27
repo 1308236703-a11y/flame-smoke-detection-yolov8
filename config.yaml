@@ -1,0 +1,49 @@
+# YOLOv8 火焰与烟雾检测配置
+
+# 模型配置
+model:
+  name: "yolov8n"  # yolov8n, yolov8s, yolov8m, yolov8l, yolov8x
+  pretrained: true
+  confidence_threshold: 0.5
+  iou_threshold: 0.45
+
+# 检测配置
+detection:
+  imgsz: 640
+  device: "cpu"  # "cpu" 或 "0" (GPU)
+  classes:
+    - "flame"
+    - "smoke"
+
+# 数据库配置
+database:
+  path: "./data/detection.db"
+  backup_interval: 3600  # 秒
+
+# 报警配置
+alert:
+  enabled: true
+  sms_enabled: true
+  min_confidence: 0.6
+  alert_cooldown: 300  # 秒
+
+# 日志配置
+logging:
+  level: "INFO"
+  log_file: "./logs/detection.log"
+  max_size: 10485760  # 10MB
+  backup_count: 5
+
+# 输出配置
+output:
+  save_detected_image: true
+  save_dir: "./results/"
+  draw_boxes: true
+  draw_confidence: true
+
+# 训练配置
+training:
+  epochs: 100
+  batch_size: 16
+  learning_rate: 0.001
+  patience: 20
